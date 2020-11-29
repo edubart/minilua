@@ -15,4 +15,5 @@ test: all
 	./lua -e "print 'hello world'"
 
 clean:
-	rm -f lua example
+	rm -f lua example *.exe
+

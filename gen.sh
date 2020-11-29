@@ -94,7 +94,6 @@ echo "#ifdef LUA_IMPL" >> $OUTFILE
   cat $LUADIR/src/lparser.h >> $OUTFILE
   cat $LUADIR/src/lcode.h >> $OUTFILE
   cat $LUADIR/src/lvm.h >> $OUTFILE
-  sed -i '/#include "ljumptab.h"/r $LUADIR/src/ljumptab.h' $OUTFILE
   cat $LUADIR/src/lctype.h >> $OUTFILE
 
   # C sources
@@ -117,6 +116,7 @@ echo "#ifdef LUA_IMPL" >> $OUTFILE
   cat $LUADIR/src/ltable.c >> $OUTFILE
   cat $LUADIR/src/ldo.c >> $OUTFILE
   cat $LUADIR/src/lvm.c >> $OUTFILE
+  sed -i "/#include \"ljumptab.h\"/r $LUADIR/src/ljumptab.h" $OUTFILE
   cat $LUADIR/src/lapi.c >> $OUTFILE
   cat $LUADIR/src/lauxlib.c >> $OUTFILE
   cat $LUADIR/src/lbaselib.c >> $OUTFILE
