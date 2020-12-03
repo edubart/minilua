@@ -46,12 +46,12 @@ For documentation on how to use Lua read its [official manual](https://www.lua.o
 
 ## Updates
 
+- **03-Dec-2020**: Updated to Lua 5.4.2.
 - **27-Nov-2020**: Library created, using Lua 5.4.2-rc1.
 
 ## Notes
 
-This library tries to keep up with latest official Lua release, however at the moment Lua 5.4.2-rc1
-is used due to some unfortunate bugs in 5.4.1.
+This library tries to keep up with latest official Lua release.
 The header is generated using the bash script `gen.sh` all modifications done is there.
 
 ## License

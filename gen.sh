@@ -1,12 +1,7 @@
-LUAVER=5.4.2-rc1
-LUADIR=lua-5.4.2
+LUAVER=5.4.2
+LUADIR=lua-$LUAVER
 LUAPKG=lua-$LUAVER.tar.gz
-LUAURL=https://www.lua.org/work/$LUAPKG
-
-# LUAVER=5.4.1
-# LUADIR=lua-$LUAVER
-# LUAPKG=lua-$LUAVER.tar.gz
-# LUAURL=https://www.lua.org/ftp/$LUAPKG
+LUAURL=https://www.lua.org/ftp/$LUAPKG
 
 OUTFILE=minilua.h
 
