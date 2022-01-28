@@ -45,6 +45,7 @@ For documentation on how to use Lua read its [official manual](https://www.lua.o
 
 ## Updates
 
+- **28-Jan-2022**: Updated to Lua 5.4.3.
 - **31-Mar-2021**: Updated to Lua 5.4.3.
 - **03-Dec-2020**: Updated to Lua 5.4.2.
 - **27-Nov-2020**: Library created, using Lua 5.4.2-rc1.
