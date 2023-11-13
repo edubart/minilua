@@ -1,4 +1,4 @@
-LUAVER=5.4.4
+LUAVER=5.4.6
 LUADIR=lua-$LUAVER
 LUAPKG=lua-$LUAVER.tar.gz
 LUAURL=https://www.lua.org/ftp/$LUAPKG
@@ -38,7 +38,7 @@ cat <<EOF >> $OUTFILE
 */
 
 /* detect system platform */
-#if !defined(LUA_USE_WINDOWS) && !defined(LUA_USE_LINUX) && !defined(LUA_USE_MACOSX) && !defined(LUA_USE_POSIX) && !defined(LUA_USE_C89)
+#if !defined(LUA_USE_WINDOWS) && !defined(LUA_USE_LINUX) && !defined(LUA_USE_MACOSX) && !defined(LUA_USE_POSIX) && !defined(LUA_USE_C89) && !defined(LUA_USE_IOS)
 #if defined(_WIN32)
 #define LUA_USE_WINDOWS
 #elif defined(__linux__)
@@ -71,6 +71,7 @@ cat $LUADIR/src/lualib.h >> $OUTFILE
 
 echo "#ifdef LUA_IMPL" >> $OUTFILE
   # C headers
+  echo "typedef struct CallInfo CallInfo;" >> $OUTFILE
   cat $LUADIR/src/llimits.h >> $OUTFILE
   cat $LUADIR/src/lobject.h >> $OUTFILE
   cat $LUADIR/src/lmem.h >> $OUTFILE
@@ -148,7 +149,7 @@ cat <<EOF >> $OUTFILE
   MIT License
 
   Copyright (c) 1994–2019 Lua.org, PUC-Rio.
-  Copyright (c) 2020-2022 Eduardo Bart (https://github.com/edubart).
+  Copyright (c) 2020-2023 Eduardo Bart (https://github.com/edubart).
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
