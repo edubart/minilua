@@ -1,4 +1,4 @@
-LUAVER=5.4.7
+LUAVER=5.4.8
 LUADIR=lua-$LUAVER
 LUAPKG=lua-$LUAVER.tar.gz
 LUAURL=https://www.lua.org/ftp/$LUAPKG
