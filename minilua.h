@@ -2,7 +2,7 @@
   minilua.h -- Lua in a single header
   Project URL: https://github.com/edubart/minilua
 
-  This is Lua 5.4.7 contained in a single header to be bundled in C/C++ applications with ease.
+  This is Lua 5.4.8 contained in a single header to be bundled in C/C++ applications with ease.
   Lua is a powerful, efficient, lightweight, embeddable scripting language.
 
   Do the following in *one* C file to create the implementation:
@@ -908,14 +908,14 @@ extern "C" {
 
 #define LUA_VERSION_MAJOR	"5"
 #define LUA_VERSION_MINOR	"4"
-#define LUA_VERSION_RELEASE	"7"
+#define LUA_VERSION_RELEASE	"8"
 
 #define LUA_VERSION_NUM			504
-#define LUA_VERSION_RELEASE_NUM		(LUA_VERSION_NUM * 100 + 7)
+#define LUA_VERSION_RELEASE_NUM		(LUA_VERSION_NUM * 100 + 8)
 
 #define LUA_VERSION	"Lua " LUA_VERSION_MAJOR "." LUA_VERSION_MINOR
 #define LUA_RELEASE	LUA_VERSION "." LUA_VERSION_RELEASE
-#define LUA_COPYRIGHT	LUA_RELEASE "  Copyright (C) 1994-2024 Lua.org, PUC-Rio"
+#define LUA_COPYRIGHT	LUA_RELEASE "  Copyright (C) 1994-2025 Lua.org, PUC-Rio"
 #define LUA_AUTHORS	"R. Ierusalimschy, L. H. de Figueiredo, W. Celes"
 
 
@@ -1387,7 +1387,7 @@ struct lua_Debug {
 
 
 /******************************************************************************
-* Copyright (C) 1994-2024 Lua.org, PUC-Rio.
+* Copyright (C) 1994-2025 Lua.org, PUC-Rio.
 *
 * Permission is hereby granted, free of charge, to any person obtaining
 * a copy of this software and associated documentation files (the
@@ -4160,6 +4160,7 @@ LUAI_FUNC int luaG_tracecall (lua_State *L);
 /* type of protected functions, to be ran by 'runprotected' */
 typedef void (*Pfunc) (lua_State *L, void *ud);
 
+LUAI_FUNC l_noret luaD_errerr (lua_State *L);
 LUAI_FUNC void luaD_seterrorobj (lua_State *L, int errcode, StkId oldtop);
 LUAI_FUNC int luaD_protectedparser (lua_State *L, ZIO *z, const char *name,
                                                   const char *mode);
@@ -6447,7 +6448,7 @@ void luaE_checkcstack (lua_State *L) {
   if (getCcalls(L) == LUAI_MAXCCALLS)
     luaG_runerror(L, "C stack overflow");
   else if (getCcalls(L) >= (LUAI_MAXCCALLS / 10 * 11))
-    luaD_throw(L, LUA_ERRERR);  /* error while handling stack error */
+    luaD_errerr(L);  /* error while handling stack error */
 }
 
 
@@ -6553,7 +6554,9 @@ static void close_state (lua_State *L) {
     luaC_freeallobjects(L);  /* just collect its objects */
   else {  /* closing a fully built state */
     L->ci = &L->base_ci;  /* unwind CallInfo list */
+    L->errfunc = 0;   /* stack unwind can "throw away" the error function */
     luaD_closeprotected(L, 1, LUA_OK);  /* close all upvalues */
+    L->top.p = L->stack.p + 1;  /* empty the stack to run finalizers */
     luaC_freeallobjects(L);  /* collect all objects */
     luai_userstateclose(L);
   }
@@ -6609,6 +6612,7 @@ int luaE_resetthread (lua_State *L, int status) {
   if (status == LUA_YIELD)
     status = LUA_OK;
   L->status = LUA_OK;  /* so it can run __close metamethods */
+  L->errfunc = 0;   /* stack unwind can "throw away" the error function */
   status = luaD_closeprotected(L, 1, status);
   if (status != LUA_OK)  /* errors? */
     luaD_seterrorobj(L, status, L->stack.p + 1);
@@ -9085,6 +9089,7 @@ int luaX_lookahead (LexState *ls) {
 #define MAXREGS		255
 
 
+/* (note that expressions VJMP also have jumps.) */
 #define hasjumps(e)	((e)->t != (e)->f)
 
 
@@ -10035,7 +10040,7 @@ void luaK_exp2anyregup (FuncState *fs, expdesc *e) {
 ** or it is a constant.
 */
 void luaK_exp2val (FuncState *fs, expdesc *e) {
-  if (hasjumps(e))
+  if (e->k == VJMP || hasjumps(e))
     luaK_exp2anyreg(fs, e);
   else
     luaK_dischargevars(fs, e);
@@ -11122,7 +11127,7 @@ static int new_localvar (LexState *ls, TString *name) {
   checklimit(fs, dyd->actvar.n + 1 - fs->firstlocal,
                  MAXVARS, "local variables");
   luaM_growvector(L, dyd->actvar.arr, dyd->actvar.n + 1,
-                  dyd->actvar.size, Vardesc, USHRT_MAX, "local variables");
+                  dyd->actvar.size, Vardesc, SHRT_MAX, "local variables");
   var = &dyd->actvar.arr[dyd->actvar.n++];
   var->vd.kind = VDKREG;  /* default */
   var->vd.name = name;
@@ -11773,12 +11778,11 @@ static void recfield (LexState *ls, ConsControl *cc) {
   FuncState *fs = ls->fs;
   int reg = ls->fs->freereg;
   expdesc tab, key, val;
-  if (ls->t.token == TK_NAME) {
-    checklimit(fs, cc->nh, MAX_INT, "items in a constructor");
+  if (ls->t.token == TK_NAME)
     codename(ls, &key);
-  }
   else  /* ls->t.token == '[' */
     yindex(ls, &key);
+  checklimit(fs, cc->nh, MAX_INT, "items in a constructor");
   cc->nh++;
   checknext(ls, '=');
   tab = *cc->t;
@@ -12928,6 +12932,9 @@ LClosure *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff,
 static const char *funcnamefromcall (lua_State *L, CallInfo *ci,
                                                    const char **name);
 
+static const char strlocal[] = "local";
+static const char strupval[] = "upvalue";
+
 
 static int currentpc (CallInfo *ci) {
   lua_assert(isLua(ci));
@@ -13388,7 +13395,7 @@ static const char *basicgetobjname (const Proto *p, int *ppc, int reg,
   int pc = *ppc;
   *name = luaF_getlocalname(p, reg + 1, pc);
   if (*name)  /* is a local? */
-    return "local";
+    return strlocal;
   /* else try symbolic execution */
   *ppc = pc = findsetreg(p, pc, reg);
   if (pc != -1) {  /* could find instruction? */
@@ -13403,7 +13410,7 @@ static const char *basicgetobjname (const Proto *p, int *ppc, int reg,
       }
       case OP_GETUPVAL: {
         *name = upvalname(p, GETARG_B(i));
-        return "upvalue";
+        return strupval;
       }
       case OP_LOADK: return kname(p, GETARG_Bx(i), name);
       case OP_LOADKX: return kname(p, GETARG_Ax(p->code[pc + 1]), name);
@@ -13438,15 +13445,21 @@ static void rkname (const Proto *p, int pc, Instruction i, const char **name) {
 
 /*
 ** Check whether table being indexed by instruction 'i' is the
-** environment '_ENV'
+** environment '_ENV'. If the table is an upvalue, get its name;
+** otherwise, find some "name" for the table and check whether
+** that name is the name of a local variable (and not, for instance,
+** a string). Then check that, if there is a name, it is '_ENV'.
 */
 static const char *isEnv (const Proto *p, int pc, Instruction i, int isup) {
   int t = GETARG_B(i);  /* table index */
   const char *name;  /* name of indexed variable */
   if (isup)  /* is 't' an upvalue? */
     name = upvalname(p, t);
-  else  /* 't' is a register */
-    basicgetobjname(p, &pc, t, &name);
+  else {  /* 't' is a register */
+    const char *what = basicgetobjname(p, &pc, t, &name);
+    if (what != strlocal && what != strupval)
+      name = NULL;  /* cannot be the variable _ENV */
+  }
   return (name && strcmp(name, LUA_ENV) == 0) ? "global" : "field";
 }
 
@@ -13592,7 +13605,7 @@ static const char *getupvalname (CallInfo *ci, const TValue *o,
   for (i = 0; i < c->nupvalues; i++) {
     if (c->upvals[i]->v.p == o) {
       *name = upvalname(c->p, i);
-      return "upvalue";
+      return strupval;
     }
   }
   return NULL;
@@ -16383,10 +16396,6 @@ void luaD_seterrorobj (lua_State *L, int errcode, StkId oldtop) {
       setsvalue2s(L, oldtop, G(L)->memerrmsg); /* reuse preregistered msg. */
       break;
     }
-    case LUA_ERRERR: {
-      setsvalue2s(L, oldtop, luaS_newliteral(L, "error in error handling"));
-      break;
-    }
     case LUA_OK: {  /* special case only for closing upvalues */
       setnilvalue(s2v(oldtop));  /* no error message */
       break;
@@ -16409,6 +16418,7 @@ l_noret luaD_throw (lua_State *L, int errcode) {
   else {  /* thread has no error handler */
     global_State *g = G(L);
     errcode = luaE_resetthread(L, errcode);  /* close all upvalues */
+    L->status = errcode;
     if (g->mainthread->errorJmp) {  /* main thread has a handler? */
       setobjs2s(L, g->mainthread->top.p++, L->top.p - 1);  /* copy error obj. */
       luaD_throw(g->mainthread, errcode);  /* re-throw in main thread */
@@ -16487,6 +16497,16 @@ static void correctstack (lua_State *L) {
 /* some space for error handling */
 #define ERRORSTACKSIZE	(LUAI_MAXSTACK + 200)
 
+
+/* raise an error while running the message handler */
+l_noret luaD_errerr (lua_State *L) {
+  TString *msg = luaS_newliteral(L, "error in error handling");
+  setsvalue2s(L, L->top.p, msg);
+  L->top.p++;  /* assume EXTRA_STACK */
+  luaD_throw(L, LUA_ERRERR);
+}
+
+
 /*
 ** Reallocate the stack to a new size, correcting all pointers into it.
 ** In ISO C, any pointer use after the pointer has been deallocated is
@@ -16536,7 +16556,7 @@ int luaD_growstack (lua_State *L, int n, int raiseerror) {
        a stack error; cannot grow further than that. */
     lua_assert(stacksize(L) == ERRORSTACKSIZE);
     if (raiseerror)
-      luaD_throw(L, LUA_ERRERR);  /* error inside message handler */
+      luaD_errerr(L);  /* error inside message handler */
     return 0;  /* if not 'raiseerror', just signal it */
   }
   else if (n < LUAI_MAXSTACK) {  /* avoids arithmetic overflows */
@@ -17656,7 +17676,10 @@ void luaV_finishset (lua_State *L, const TValue *t, TValue *key,
       lua_assert(isempty(slot));  /* slot must be empty */
       tm = fasttm(L, h->metatable, TM_NEWINDEX);  /* get metamethod */
       if (tm == NULL) {  /* no metamethod? */
+        sethvalue2s(L, L->top.p, h);  /* anchor 't' */
+        L->top.p++;  /* assume EXTRA_STACK */
         luaH_finishset(L, h, key, slot, val);  /* set new value */
+        L->top.p--;
         invalidateTMcache(h);
         luaC_barrierback(L, obj2gco(h), val);
         return;
@@ -20671,7 +20694,7 @@ void lua_warning (lua_State *L, const char *msg, int tocont) {
 LUA_API void *lua_newuserdatauv (lua_State *L, size_t size, int nuvalue) {
   Udata *u;
   lua_lock(L);
-  api_check(L, 0 <= nuvalue && nuvalue < USHRT_MAX, "invalid value");
+  api_check(L, 0 <= nuvalue && nuvalue < SHRT_MAX, "invalid value");
   u = luaS_newudata(L, size, nuvalue);
   setuvalue(L, s2v(L->top.p), u);
   api_incr_top(L);
@@ -29124,10 +29147,8 @@ static int incomplete (lua_State *L, int status) {
   if (status == LUA_ERRSYNTAX) {
     size_t lmsg;
     const char *msg = lua_tolstring(L, -1, &lmsg);
-    if (lmsg >= marklen && strcmp(msg + lmsg - marklen, EOFMARK) == 0) {
-      lua_pop(L, 1);
+    if (lmsg >= marklen && strcmp(msg + lmsg - marklen, EOFMARK) == 0)
       return 1;
-    }
   }
   return 0;  /* else... */
 }
@@ -29142,9 +29163,9 @@ static int pushline (lua_State *L, int firstline) {
   size_t l;
   const char *prmt = get_prompt(L, firstline);
   int readstatus = lua_readline(L, b, prmt);
-  if (readstatus == 0)
-    return 0;  /* no input (prompt will be popped by caller) */
   lua_pop(L, 1);  /* remove prompt */
+  if (readstatus == 0)
+    return 0;  /* no input */
   l = strlen(b);
   if (l > 0 && b[l-1] == '\n')  /* line ends with newline? */
     b[--l] = '\0';  /* remove it */
@@ -29186,8 +29207,9 @@ static int multiline (lua_State *L) {
     int status = luaL_loadbuffer(L, line, len, "=stdin");  /* try it */
     if (!incomplete(L, status) || !pushline(L, 0)) {
       lua_saveline(L, line);  /* keep history */
-      return status;  /* cannot or should not try to add continuation line */
+      return status;  /* should not or cannot try to add continuation line */
     }
+    lua_remove(L, -2);  /* remove error message (from incomplete line) */
     lua_pushliteral(L, "\n");  /* add newline... */
     lua_insert(L, -2);  /* ...between the two lines */
     lua_concat(L, 3);  /* join them */
@@ -29326,7 +29348,7 @@ int main (int argc, char **argv) {
   MIT License
 
   Copyright (c) 1994–2019 Lua.org, PUC-Rio.
-  Copyright (c) 2020-2023 Eduardo Bart (https://github.com/edubart).
+  Copyright (c) 2020-2024 Eduardo Bart (https://github.com/edubart).
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
