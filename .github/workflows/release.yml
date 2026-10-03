@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up MSVC (Windows x64)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build with GCC (Linux x64)
+        if: runner.os == 'Linux'
+        run: |
+          gcc --version
+          gcc -O2 -o minilua tests/lua.c -lm -ldl
+          ./minilua -e "print 'hello world'"
+          ls -l minilua
+          file minilua || true
+
+      - name: Build with MSVC (Windows x64)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          where cl
+          call make.bat msvc test
+          dir minilua.exe
+
+      - name: Upload artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: minilua
+          path: minilua
+          if-no-files-found: error
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: minilua.exe
+          path: minilua.exe
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub release
+    needs: build
+    # Only cut a release for tag pushes (e.g. v1.2.3).
+    # Manual workflow_dispatch runs still validate both builds above.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List assets
+        run: |
+          ls -l dist
+          chmod +x dist/minilua
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --generate-notes \
+            dist/minilua \
+            dist/minilua.exe
